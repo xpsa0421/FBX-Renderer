@@ -1,0 +1,90 @@
+struct VS_IN
+{
+	float3 p 	: POSITION; 
+	float3 n	: NORMAL; 
+    	float4 c 	: COLOR;
+	float2 t 	: TEXTURE;
+
+	float4 i	: INDEX;
+	float4 w	: WEIGHT;
+};
+
+struct VS_OUT
+{
+	float4 	p 		: SV_POSITION;
+	float3 	n  		: NORMAL;
+	float4 	c 		: COLOR0;
+	float2 	t 		: TEXCOORD0;
+	float3	lightLook 	: TEXCOORD1;
+	float4 	lightColour 	: TEXCOORD2;
+	float4	world		: TEXCOORD3;
+};
+
+cbuffer cb_data : register(b0)
+{
+	matrix 	g_worldMat	: packoffset(c0);
+	matrix 	g_viewMat	: packoffset(c4);
+	matrix 	g_projMat	: packoffset(c8);
+	float4  g_meshColour	: packoffset(c12);
+	float4	g_lightLook	: packoffset(c13);
+};
+
+cbuffer cb_anim : register(b1)
+{
+	matrix	g_boneMat[255];
+}
+
+VS_OUT VSMain(VS_IN input) 
+{
+	VS_OUT output = (VS_OUT)0;
+	float4 localVertex = float4(input.p, 1.0f);
+	float4 animVertex = 0;
+	float4 animNormal = 0;
+
+	for (int i = 0; i < 4; i++)
+	{
+		uint iBone = input.i[i];
+		float weight = input.w[i];
+		animVertex += mul(localVertex, g_boneMat[iBone]) * weight;
+		animNormal += mul(input.n, g_boneMat[iBone]) * weight;
+	}
+
+	float4 worldVertex = mul(animVertex, g_worldMat);
+	float4 viewVertex = mul(worldVertex, g_viewMat);
+	float4 projVertex = mul(viewVertex, g_projMat);
+
+	output.p = projVertex;
+	output.n = animNormal;
+	output.c = input.c * g_meshColour;
+	output.t = input.t;
+	output.world = worldVertex;
+
+	float lightDot = max(0.3f, dot(input.n, -g_lightLook));
+	output.lightLook = g_lightLook.xyz;
+	output.lightColour = float4(lightDot, lightDot, lightDot, 1);
+
+	return output;
+}
+
+Texture2D     	g_texture		: register(t0);
+SamplerState  	g_sampleWrap	: register(s0);
+
+float4 PSTexture(VS_OUT input) : SV_Target
+{
+	float4 textureColour= g_texture.Sample(g_sampleWrap, input.t);
+	return input.c * textureColour;
+}
+
+float4 PSTextureLight(VS_OUT input) : SV_Target
+{
+	float4 textureColour = g_texture.Sample(g_sampleWrap, input.t);
+	input.c.a = 1.0f;
+	float lightDot = max(0.3f, dot(input.n, -input.lightLook));	
+	float4 lightColour = float4(lightDot, lightDot, lightDot, 1);
+	return input.c * textureColour * lightColour; 
+}
+
+float4 PSMain(VS_OUT input) : SV_Target
+{
+	return input.c;
+}
